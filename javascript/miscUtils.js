@@ -361,6 +361,12 @@ exports.getInputsRegion = function(start, end, region, params) {
   var wat_5 = [2090.036621,	2955.367136,	1767.187081,	232.7541696,	35.7418541,	21.8578176]
   var shade_5 = [0, 0, 0, 0, 0, 0];
   
+  var cloud_7 = [16022.125,	7781.473195,	7843.746653,	8623.887614,	6047.753435,	3765.897382]
+  var gv_7 = [261.5757123,	577.9617759,	366.6097816,	5291.62735,	2121.13877,	770.4923314]
+  var soil_7 = [1036.654025,	1466.611126,	1777.302094,	2795.225033,	4631.590805,	3619.778338]
+  var wat_7 = [2090.036621,	2955.367136,	1767.187081,	232.7541696,	35.7418541,	21.8578176]
+  var shade_7 = [0, 0, 0, 0, 0, 0];
+  
   var cloud_8 = [ 6375.76141,	6693.028614,	6780.477957,	6968.257616,	7492.911619,	5969.836111,	4662.671087];
   var gv_8 = [281.2302661,	281.1218856,	645.1652039,	269.2813137,	6280.259655,	2007.282559,	735.9335787];
   var soil_8 = [ 1633.97976,	1923.408204,	2963.690719,	3939.457246,	5013.318084,	6035.979192,	4142.394072];
@@ -435,6 +441,11 @@ var cloudMask_L89 = function(image) {
     return image.addBands(opticalBands, null, true);
   }
   
+  // // Aplica um filtro de média morfológica a cada banda de uma imagem usando um kernel personalizado e em seguida é sobreposta pela imagme original
+  // function gapfilling(image){
+  //   return image.focal_mean(1, 'square', 'pixels', 30).blend(image)
+  // }
+
   var LT05 = ee.ImageCollection('LANDSAT/LT05/C02/T1_L2')
               .filterBounds(roi)
               .filterDate(SD, ED)
@@ -442,13 +453,20 @@ var cloudMask_L89 = function(image) {
               .map(applyScaleFactors)
               .select(bands_5,['B1', 'B2', 'B3', 'B4', 'B5', 'B7']);
   
+  var LE07 = ee.ImageCollection("LANDSAT/LE07/C02/T1_L2")
+              .filterBounds(roi)
+              .filterDate(SD, ED)
+              .map(cloudMask_L57)
+              .map(applyScaleFactors)
+              //.map(gapfilling)
+              .select(bands_5, ['B1', 'B2', 'B3', 'B4', 'B5', 'B7']);
+              
   var LC08 = ee.ImageCollection('LANDSAT/LC08/C02/T1_L2')
               .filterBounds(roi)
               .filterDate(SD, ED)
               .map(cloudMask_L89)
               .map(applyScaleFactors)
               .select(bands_8, ['B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7']);
-  
   /* 5. Do spectral unmixing and calculate NDFIW */
   // before disturbance
   var unmixNDFIW5 = function(img) {
@@ -466,6 +484,28 @@ var cloudMask_L89 = function(image) {
         }).rename('NDFIW')
         
         var gvShade = imgWithEndmembers.expression(
+        'GV / (1 - SHADE)', {
+        'GV': unmixImg.select('GV'),
+        'SHADE': unmixImg.select('Shade'),
+    }).rename('GVshade')
+
+      return imgWithEndmembers.addBands([ndfiw,gvShade])
+  };
+  var unmixNDFIW7 = function(img) {
+
+      var unmixImg = ee.Image(img).unmix([gv_7, shade_7, wat_7, soil_7, cloud_7], true,true) //change the variable #image for the variable you want run (e.g., imageB05, imageA05) 
+                    .rename(['GV', 'Shade', 'Water','Soil','Cloud'])
+      var imgWithEndmembers = ee.Image(img).addBands(unmixImg)
+        
+      var ndfiw = imgWithEndmembers.expression(
+        '((GV / (1 - SHADE)) - (SOIL + WATER)) / ((GV / (1 - SHADE)) + (SOIL + WATER))', {
+            'GV': unmixImg.select('GV'),
+          'SHADE': unmixImg.select('Shade'),
+            'WATER': unmixImg.select('Water'),
+          'SOIL': unmixImg.select('Soil')
+        }).rename('NDFIW')
+
+      var gvShade = imgWithEndmembers.expression(
         'GV / (1 - SHADE)', {
         'GV': unmixImg.select('GV'),
         'SHADE': unmixImg.select('Shade'),
@@ -497,13 +537,14 @@ var cloudMask_L89 = function(image) {
   };
 
   var endmembersCollection05 = LT05.map(unmixNDFIW5)
+  var endmembersCollection07 = LE07.map(unmixNDFIW7)
   var endmembersCollection08 = LC08.map(unmixNDFIW8)
 
 
-  var endmembersCollection_5_8 = endmembersCollection05.merge(endmembersCollection08)
+  var endmembersCollection_5_7_8 = endmembersCollection05.merge(endmembersCollection07).merge(endmembersCollection08)
 
   // -------------------------------- Bloco adicionado mask usando cloud fraction -------------------------
-  endmembersCollection_5_8 = endmembersCollection_5_8.map(function(image) {
+  endmembersCollection_5_7_8 = endmembersCollection_5_7_8.map(function(image) {
       var cfThreshold = ee.Image.constant(0.05)
       var mask = image.select('Cloud').lt(cfThreshold)
       
@@ -511,7 +552,7 @@ var cloudMask_L89 = function(image) {
       
     })
       
-  var trainNDFI = endmembersCollection_5_8.filterDate(start, end)
+  var trainNDFI = endmembersCollection_5_7_8.filterDate(start, end)
 
   var medianEM = trainNDFI.select([
      'GVshade',
@@ -554,6 +595,12 @@ exports.getInputsNoRegion = function(start, end, params) {
   var wat_5 = [2090.036621,	2955.367136,	1767.187081,	232.7541696,	35.7418541,	21.8578176]
   var shade_5 = [0, 0, 0, 0, 0, 0];
   
+  var cloud_7 = [16022.125,	7781.473195,	7843.746653,	8623.887614,	6047.753435,	3765.897382]
+  var gv_7 = [261.5757123,	577.9617759,	366.6097816,	5291.62735,	2121.13877,	770.4923314]
+  var soil_7 = [1036.654025,	1466.611126,	1777.302094,	2795.225033,	4631.590805,	3619.778338]
+  var wat_7 = [2090.036621,	2955.367136,	1767.187081,	232.7541696,	35.7418541,	21.8578176]
+  var shade_7 = [0, 0, 0, 0, 0, 0];
+  
   var cloud_8 = [ 6375.76141,	6693.028614,	6780.477957,	6968.257616,	7492.911619,	5969.836111,	4662.671087];
   var gv_8 = [281.2302661,	281.1218856,	645.1652039,	269.2813137,	6280.259655,	2007.282559,	735.9335787];
   var soil_8 = [ 1633.97976,	1923.408204,	2963.690719,	3939.457246,	5013.318084,	6035.979192,	4142.394072];
@@ -627,13 +674,22 @@ var cloudMask_L89 = function(image) {
     var opticalBands = image.select('SR_B.').multiply(0.0000275).add(-0.2).multiply(10000);
     return image.addBands(opticalBands, null, true);
   }
-  
+  // // Aplica um filtro de média morfológica a cada banda de uma imagem usando um kernel personalizado e em seguida é sobreposta pela imagme original
+  // function gapfilling(image){
+  //   return image.focal_mean(1, 'square', 'pixels', 30).blend(image)
+  // }
+
   var LT05 = ee.ImageCollection('LANDSAT/LT05/C02/T1_L2')
               .filterDate(SD, ED)
               .map(cloudMask_L57)
               .map(applyScaleFactors)
               .select(bands_5,['B1', 'B2', 'B3', 'B4', 'B5', 'B7']);
-  
+  var LE07 = ee.ImageCollection("LANDSAT/LE07/C02/T1_L2")
+              .filterDate(SD, ED)
+              .map(cloudMask_L57)
+              .map(applyScaleFactors)
+              //.map(gapfilling)
+              .select(bands_5,['B1', 'B2', 'B3', 'B4', 'B5', 'B7']);
   var LC08 = ee.ImageCollection('LANDSAT/LC08/C02/T1_L2')
               .filterDate(SD, ED)
               .map(cloudMask_L89)
@@ -664,6 +720,30 @@ var cloudMask_L89 = function(image) {
 
       return imgWithEndmembers.addBands([ndfiw,gvShade])
   };
+  
+  var unmixNDFIW7 = function(img) {
+
+      var unmixImg = ee.Image(img).unmix([gv_7, shade_7, wat_7, soil_7, cloud_7], true,true) //change the variable #image for the variable you want run (e.g., imageB05, imageA05) 
+                    .rename(['GV', 'Shade', 'Water','Soil','Cloud'])
+      var imgWithEndmembers = ee.Image(img).addBands(unmixImg)
+        
+      var ndfiw = imgWithEndmembers.expression(
+        '((GV / (1 - SHADE)) - (SOIL + WATER)) / ((GV / (1 - SHADE)) + (SOIL + WATER))', {
+            'GV': unmixImg.select('GV'),
+          'SHADE': unmixImg.select('Shade'),
+            'WATER': unmixImg.select('Water'),
+          'SOIL': unmixImg.select('Soil')
+        }).rename('NDFIW')
+
+      var gvShade = imgWithEndmembers.expression(
+        'GV / (1 - SHADE)', {
+        'GV': unmixImg.select('GV'),
+        'SHADE': unmixImg.select('Shade'),
+    }).rename('GVshade')
+
+      return imgWithEndmembers.addBands([ndfiw,gvShade])
+  };
+  
   var unmixNDFIW8 = function(img) {
 
       var unmixImg = ee.Image(img).unmix([gv_8, shade_8, wat_8, soil_8, cloud_8], true,true) //change the variable #image for the variable you want run (e.g., imageB05, imageA05) 
@@ -689,13 +769,14 @@ var cloudMask_L89 = function(image) {
 
       
   var endmembersCollection05 = LT05.map(unmixNDFIW5)
+  var endmembersCollection07 = LE07.map(unmixNDFIW7)
   var endmembersCollection08 = LC08.map(unmixNDFIW8)
 
 
-  var endmembersCollection_5_8 = endmembersCollection05.merge(endmembersCollection08)
+  var endmembersCollection_5_7_8 = endmembersCollection05.merge(endmembersCollection07).merge(endmembersCollection08)
 
   // -------------------------------- Bloco adicionado mask usando cloud fraction -------------------------
-  endmembersCollection_5_8 = endmembersCollection_5_8.map(function(image) {
+  endmembersCollection_5_7_8 = endmembersCollection_5_7_8.map(function(image) {
       var cfThreshold = ee.Image.constant(0.05)
       var mask = image.select('Cloud').lt(cfThreshold)
       
@@ -703,7 +784,7 @@ var cloudMask_L89 = function(image) {
       
     })
       
-  var trainNDFI = endmembersCollection_5_8.filterDate(start, end)
+  var trainNDFI = endmembersCollection_5_7_8.filterDate(start, end)
 
   var medianEM = trainNDFI.select([
      'GVshade',
