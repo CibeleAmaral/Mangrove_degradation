@@ -1,6 +1,6 @@
 # Mangrove Degradation Monitoring
 
-This script detects mangrove degradation using Google Earth Engine (GEE). It analyzes land cover changes from different classes such as mangroves, water, soil, and salt marsh. The purpose is to monitor and detect changes in the mangrove ecosystem over time.
+This script detects mangrove degradation and changes in state using Landsat time series (TM to OLI-2) in Google Earth Engine (GEE). It analyzes land cover changes across different classes, such as mangroves, water, soil, and grasses/ dry matter. The purpose is to monitor and detect changes in the mangrove ecosystem over time. It is based on the methods created by Bullock et al. (2020) and calibrated for mangroves following Amaral et al. (2023). 
 
 ## How to Run
 
